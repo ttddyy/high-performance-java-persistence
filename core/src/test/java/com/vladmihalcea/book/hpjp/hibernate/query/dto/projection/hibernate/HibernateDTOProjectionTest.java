@@ -4,13 +4,18 @@ import com.vladmihalcea.book.hpjp.hibernate.query.dto.projection.Post;
 import com.vladmihalcea.book.hpjp.hibernate.query.dto.projection.PostComment;
 import com.vladmihalcea.book.hpjp.util.AbstractTest;
 import com.vladmihalcea.book.hpjp.util.providers.Database;
+import com.vladmihalcea.hibernate.type.util.ListResultTransformer;
 import org.hibernate.jpa.QueryHints;
+import org.hibernate.query.Query;
 import org.hibernate.transform.ResultTransformer;
 import org.hibernate.transform.Transformers;
 import org.junit.Test;
 
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
 
@@ -125,6 +130,60 @@ public class HibernateDTOProjectionTest extends AbstractTest {
     }
 
     @Test
+    public void testRecord() {
+        doInJPA(entityManager -> {
+            List<PostRecord> postRecords = entityManager.createQuery("""
+                select 
+                    p.id,
+                    p.title,
+                    p.createdOn,
+                    p.createdBy,
+                    p.updatedOn,
+                    p.updatedBy
+                from Post p
+                order by p.id
+                """)
+            .unwrap(Query.class)
+            .setResultTransformer(
+                (ListResultTransformer) (tuple, aliases) -> {
+                    int i =0;
+                    return new PostRecord(
+                        ((Number) tuple[i++]).longValue(),
+                        (String) tuple[i++],
+                        new AuditRecord(
+                            (LocalDateTime) tuple[i++],
+                            (String) tuple[i++],
+                            (LocalDateTime) tuple[i++],
+                            (String) tuple[i++]
+                        )
+                    );
+                }
+            )
+            .getResultList();
+
+            assertEquals(2, postRecords.size());
+
+            PostRecord postRecord = postRecords.get(0);
+
+            assertEquals(
+                1L, postRecord.id().longValue()
+            );
+
+            assertEquals(
+                "High-Performance Java Persistence", postRecord.title()
+            );
+
+            assertEquals(
+                LocalDateTime.of(2016, 11, 2, 12, 0, 0), postRecord.audit().createdOn()
+            );
+
+            assertEquals(
+                "Vlad Mihalcea", postRecord.audit().createdBy()
+            );
+        });
+    }
+
+    @Test
     public void testParentChildDTOProjectionNativeQueryResultTransformer() {
         doInJPA( entityManager -> {
             List<PostDTO> postDTOs = entityManager.createNativeQuery("""
@@ -171,9 +230,9 @@ public class HibernateDTOProjectionTest extends AbstractTest {
                 join pc.post p
                 order by pc.id
                 """)
-            .unwrap(org.hibernate.query.Query.class)
-            .setResultTransformer(new PostDTOResultTransformer())
-            .getResultList();
+                .unwrap(org.hibernate.query.Query.class)
+                .setResultTransformer(new PostDTOResultTransformer())
+                .getResultList();
 
             assertEquals(2, postDTOs.size());
             assertEquals(2, postDTOs.get(0).getComments().size());
@@ -203,8 +262,8 @@ public class HibernateDTOProjectionTest extends AbstractTest {
                 join fetch p.comments pc
                 order by pc.id
                 """)
-            .setHint(QueryHints.HINT_PASS_DISTINCT_THROUGH, false)
-            .getResultList();
+                .setHint(QueryHints.HINT_PASS_DISTINCT_THROUGH, false)
+                .getResultList();
 
             assertEquals(2, posts.size());
             assertEquals(2, posts.get(0).getComments().size());
@@ -336,5 +395,20 @@ public class HibernateDTOProjectionTest extends AbstractTest {
             aliasToIndexMap.put(aliases[i], i);
         }
         return aliasToIndexMap;
+    }
+
+    public static record PostRecord(
+        Long id,
+        String title,
+        AuditRecord audit
+    ) {
+    }
+
+    public static record AuditRecord(
+        LocalDateTime createdOn,
+        String createdBy,
+        LocalDateTime updatedOn,
+        String updatedBy
+    ) {
     }
 }
